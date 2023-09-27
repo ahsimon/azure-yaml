@@ -1,0 +1,83 @@
+trigger:
+- main
+
+pr:
+- '*'
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  backupFolder: 'C:\Backup\SampleAPP'
+  deployFolder: 'C:\SampleAPP'
+  azureSubscription: '<azure_subscription>'
+  webAppName: 'SampleAPP'
+  webAppPoolName: 'SampleAPPPool'
+
+steps:
+- script: |
+    # Backup the existing deployment folder
+    robocopy $(deployFolder) $(backupFolder) /MIR
+  displayName: 'Backup existing deployment folder'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Restore and Build'
+  inputs:
+    command: 'build'
+    projects: '**/*.csproj'
+    arguments: '--configuration Release'
+
+- script: |
+    # Replace new DLLs in the deployment folder
+    robocopy $(Build.ArtifactStagingDirectory)\** $(deployFolder)\** /MIR
+  displayName: 'Replace new DLLs in the deployment folder'
+
+- task: IisWebAppPool@2
+  displayName: 'Stop app pool'
+  inputs:
+    WebsiteName: $(webAppName)
+    WebAppPoolName: $(webAppPoolName)
+    Action: Stop
+
+- task: IisWebApp@2
+  displayName: 'Stop website'
+  inputs:
+    WebsiteName: $(webAppName)
+    Action: Stop
+
+- task: AzureRmWebAppDeployment@4
+  displayName: 'Deploy API to Azure App Service'
+  inputs:
+    azureSubscription: $(azureSubscription)
+    appType: 'webApp'
+    WebAppName: $(webAppName)
+    packageForLinux: '$(Build.ArtifactStagingDirectory)/**/*.zip'
+    enableCustomDeployment: true
+
+- task: IisWebAppPool@2
+  displayName: 'Start app pool'
+  inputs:
+    WebsiteName: $(webAppName)
+    WebAppPoolName: $(webAppPoolName)
+    Action: Start
+
+- task: IisWebApp@2
+  displayName: 'Start website'
+  inputs:
+    WebsiteName: $(webAppName)
+    Action: Start
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish build artifacts'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
+
+- script: |
+    # Rollback the deployment on failure
+    if "%errorlevel%" neq "0" (
+      az webapp deployment create --resource-group <resource_group> --name $(webAppName) \
+      --src $(backupFolder)/**/*.zip
+    )
+  displayName: 'Rollback deployment on failure'

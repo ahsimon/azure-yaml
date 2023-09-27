@@ -1,0 +1,53 @@
+trigger:
+- main
+
+pr:
+- '*'
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  backupFolder: 'C:\Backup\SampleAPP'
+  deployFolder: 'C:\SampleAPP'
+  serviceExe: 'YourService.exe'
+  serviceName: 'YourServiceName'
+
+steps:
+- script: |
+    # Backup the existing deployment folder
+    robocopy $(deployFolder) $(backupFolder) /MIR
+  displayName: 'Backup existing deployment folder'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Restore and Build'
+  inputs:
+    command: 'build'
+    projects: '**/*.csproj'
+    arguments: '--configuration Release'
+
+- script: |
+    # Stop the Windows service if running
+    if (sc queryex $(serviceName) | find "STATE" | findstr /i "RUNNING") {
+      sc stop $(serviceName)
+    }
+  displayName: 'Stop the Windows service'
+
+- script: |
+    # Replace the service executable and related files
+    copy /Y "$(Build.ArtifactStagingDirectory)\$(serviceExe)" "$(deployFolder)"
+    copy /Y "$(Build.ArtifactStagingDirectory)\*.config" "$(deployFolder)"
+  displayName: 'Replace service executable and related files'
+
+- script: |
+    # Start the Windows service
+    sc start $(serviceName)
+  displayName: 'Start the service'
+
+- script: |
+    # Rollback the deployment on failure
+    if "%errorlevel%" neq "0" (
+      robocopy $(backupFolder)/**/*.zip $(deployFolder) /MIR
+      sc start $(serviceName)
+    )
+  displayName: 'Rollback deployment on failure'
