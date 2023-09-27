@@ -10,8 +10,8 @@ pool:
 variables:
   backupFolder: 'C:\Backup\SampleAPP'
   deployFolder: 'C:\SampleAPP'
-  serviceExe: 'YourService.exe'
-  serviceName: 'YourServiceName'
+  serviceExe: 'SampleAPP.exe'
+  serviceName: 'SampleAPP'
 
 steps:
 - script: |
